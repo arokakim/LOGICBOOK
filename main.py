@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from database_mgr import DatabaseManager  # This is the "Brain" connection
+from database_mgr import DatabaseManager
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -7,7 +7,6 @@ ctk.set_default_color_theme("blue")
 class LogicPartner(ctk.CTk):
     def __init__(self):
         super().__init__()
-        # Initialize the database
         self.db = DatabaseManager()
 
         self.title("Logic & Syntax Partner")
@@ -18,7 +17,7 @@ class LogicPartner(ctk.CTk):
         self.grid_columnconfigure(2, weight=0) 
         self.grid_rowconfigure(0, weight=1)
 
-        # --- SIDEBAR (Navigation & Filters) ---
+        # --- SIDEBAR ---
         self.sidebar = ctk.CTkFrame(self, width=220, corner_radius=0)
         self.sidebar.grid(row=0, column=0, sticky="nsew")
         
@@ -45,26 +44,31 @@ class LogicPartner(ctk.CTk):
         self.main_container = ctk.CTkFrame(self, fg_color="transparent")
         self.main_container.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
 
-        # Header
         self.mode_header = ctk.CTkLabel(self.main_container, text="Select an Umbrella to View Snippets", font=ctk.CTkFont(size=16, slant="italic"))
         self.mode_header.pack(pady=(0, 10), anchor="w")
 
-        # 1. THE ARCHIVE VIEW (The top half)
+        # 1. THE ARCHIVE VIEW
         self.archive_display = ctk.CTkTextbox(self.main_container, corner_radius=15, border_width=1)
         self.archive_display.pack(fill="both", expand=True, pady=10)
 
-        # 2. THE ENTRY FORM (The bottom half - Your customized table)
-        self.entry_frame = ctk.CTkLabel(self.main_container, text="Add New Logic to Vault", font=("Arial", 12, "bold"))
-        self.entry_frame.pack(anchor="w", pady=(10, 0))
+        # 2. THE ENTRY FORM
+        self.entry_label = ctk.CTkLabel(self.main_container, text="Add New Logic to Vault", font=("Arial", 12, "bold"))
+        self.entry_label.pack(anchor="w", pady=(10, 0))
         
         self.form_bg = ctk.CTkFrame(self.main_container)
         self.form_bg.pack(fill="x", pady=10)
 
-        self.input_title = ctk.CTkEntry(self.form_bg, placeholder_text="Snippet Title (e.g., 'Django User Redirect')", height=35)
+        # Entry (Supports placeholder_text)
+        self.input_title = ctk.CTkEntry(self.form_bg, height=35, placeholder_text="Snippet Title (e.g. 'Django View Logic')")
         self.input_title.pack(fill="x", padx=10, pady=5)
 
+        # Textbox (Manual placeholder)
+        self.input_pseudo = ctk.CTkTextbox(self.form_bg, height=60)
+        self.input_pseudo.insert("0.0", "--- LOGIC (Pseudo-code) ---")
+        self.input_pseudo.pack(fill="x", padx=10, pady=5)
+
         self.input_code = ctk.CTkTextbox(self.form_bg, height=120)
-        self.input_code.insert("0.0", "# Type or paste logic here...")
+        self.input_code.insert("0.0", "--- SYNTAX (Python Code) ---")
         self.input_code.pack(fill="x", padx=10, pady=5)
 
         # Control Row
@@ -78,7 +82,6 @@ class LogicPartner(ctk.CTk):
         self.save_btn = ctk.CTkButton(self.control_row, text="Save to Archive", command=self.save_logic, fg_color="#1f538d")
         self.save_btn.pack(side="right")
 
-        # --- RESOURCE PANEL ---
         self.resource_panel = ctk.CTkFrame(self, width=0)
         self.resource_panel.grid(row=0, column=2, sticky="nsew", padx=(0, 20), pady=20)
         
@@ -90,36 +93,41 @@ class LogicPartner(ctk.CTk):
 
     def save_logic(self):
         title = self.input_title.get()
+        pseudo = self.input_pseudo.get("0.0", "end").strip()
         code = self.input_code.get("0.0", "end").strip()
         umbrella = self.current_category.get()
         
         if title and code:
-            # Saving to the 'snippets' table we created in database_mgr
-            self.db.cursor.execute("INSERT INTO snippets (umbrella, title, code_block) VALUES (?, ?, ?)", 
-                                   (umbrella, title, code))
-            self.db.conn.commit()
+            self.db.add_snippet(umbrella, title, pseudo, code)
             
-            # Reset UI
+            # Clear fields and reset manual "placeholders"
             self.input_title.delete(0, "end")
+            self.input_pseudo.delete("0.0", "end")
+            self.input_pseudo.insert("0.0", "--- LOGIC (Pseudo-code) ---")
             self.input_code.delete("0.0", "end")
-            self.input_code.insert("0.0", "# Success! Saved.")
+            self.input_code.insert("0.0", "--- SYNTAX (Python Code) ---")
+            
             if self.active_mode == umbrella:
-                self.switch_mode(umbrella) # Refresh the view
+                self.switch_mode(umbrella)
 
     def switch_mode(self, mode):
         self.active_mode = mode
         self.mode_header.configure(text=f"Current Mindset: {mode} | {self.modes[mode]['desc']}", text_color=self.modes[mode]['color'])
         
-        # Pull from Database
         self.archive_display.delete("0.0", "end")
-        self.db.cursor.execute("SELECT title, code_block FROM snippets WHERE umbrella = ?", (mode,))
+        # UPDATED: We now select pseudo_code as well
+        self.db.cursor.execute("SELECT title, pseudo_code, code_block FROM snippets WHERE umbrella = ?", (mode,))
         rows = self.db.cursor.fetchall()
         
         if not rows:
-            self.archive_display.insert("0.0", f"No snippets found in {mode} yet. Add one below!")
+            self.archive_display.insert("0.0", f"No snippets found in {mode} yet.")
         else:
-            for title, code in rows:
-                self.archive_display.insert("end", f"--- {title.upper()} ---\n{code}\n\n")
+            for title, pseudo, code in rows:
+                # Formatting the output with significant space
+                self.archive_display.insert("end", f"TITLE: {title.upper()}\n")
+                self.archive_display.insert("end", f"LOGIC: {pseudo}\n")
+                self.archive_display.insert("end", f"\nCODE:\n{code}\n")
+                self.archive_display.insert("end", f"{'='*50}\n\n") # Massive separator
 
     def toggle_res(self):
         if self.is_open:
